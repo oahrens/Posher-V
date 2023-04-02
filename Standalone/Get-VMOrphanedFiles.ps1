@@ -174,8 +174,35 @@ param(
 )
 
 begin {
-    Set-StrictMode -Version 3.0
+    #region preferences
+    [PSObject]$Preferences = [PSCustomObject]@{
+        <#
+			.DESCRIPTION
+				This PSObject contains the display preferences for the different scripts and for the remote sessions.
+		#>
+        ErrorAction       = [ActionPreference]::Stop
+        Debug             = if ($DebugPreference -eq [ActionPreference]::Inquire) {
+            [ActionPreference]::Continue
+        } else {
+            $DebugPreference
+        }
+        Verbose           = if ($DebugPreference -eq [ActionPreference]::Continue) {
+            [ActionPreference]::SilentlyContinue
+        } else {
+            $VerbosePreference
+        }
+        WarningForeground = [ConsoleColor]::Red
+        StrictModeVersion = [Version]::new(3, 0)
+    }
+    Set-StrictMode -Version $Preferences.StrictModeVersion
+    $ErrorActionPreference = $Preferences.ErrorAction
+    $DebugPreference = $Preferences.Debug
+    $VerbosePreference = $Preferences.Verbose
+    $Host.PrivateData.WarningForegroundColor = $Preferences.WarningForeground
+    #endregion preferences
+
     #region types
+    #region common types
     [Flags()]enum EHostTypes {
         <#
             .DESCRIPTION
@@ -542,6 +569,7 @@ begin {
                 -bor ([UInt64]$Data[$Offset++] -shl 8) -bor [UInt64]$Data[$Offset]
         }
     }
+    #endregion common types
 
     #region VHDX types
     class VhdxFile : IDisposable {
@@ -1465,24 +1493,6 @@ begin {
         WrongBackslash                = '/'
         BackslashSubstitute           = '\'
     }
-    [PSObject]$Preferences = [PSCustomObject]@{
-        <#
-			.DESCRIPTION
-				This PSObject contains the display preferences for the different scripts and for the remote sessions.
-		#>
-        ErrorAction       = [ActionPreference]::Stop
-        Debug             = if ($DebugPreference -eq [ActionPreference]::Inquire) {
-            [ActionPreference]::Continue
-        } else {
-            $DebugPreference
-        }
-        Verbose           = if ($DebugPreference -eq [ActionPreference]::Continue) {
-            [ActionPreference]::SilentlyContinue
-        } else {
-            $VerbosePreference
-        }
-        WarningForeground = [ConsoleColor]::Red
-    }
     [String]$ScriptUsing = @'
 using namespace System
 using namespace System.Collections
@@ -1499,13 +1509,6 @@ using namespace System.Text.RegularExpressions
     [Int32]$GuidSize = 16
     [Int32]$ChecksumSize = 4
     #endregion variables
-
-    #region general settings
-    $ErrorActionPreference = $Preferences.ErrorAction
-    $DebugPreference = $Preferences.Debug
-    $VerbosePreference = $Preferences.Verbose
-    $Host.PrivateData.WarningForegroundColor = $Preferences.WarningForeground
-    #endregion general settings
 
     #region script blocks
     [ScriptBlock]$ScriptTypes = {
@@ -1686,23 +1689,25 @@ using namespace System.Text.RegularExpressions
         )
 
         begin {
-            #region prepare
-            Set-StrictMode -Version 3.0
+            #region preferences
+            Set-StrictMode -Version $Preferences.StrictModeVersion
             $ErrorActionPreference = $Preferences.ErrorAction
             $DebugPreference = $Preferences.Debug
             $VerbosePreference = $Preferences.Verbose
-            #endregion prepare
+            #endregion preferences
 
             #region types
             # The following comment is for functional reasons. It must not be renamed or removed.
             #ScriptTypes
             #endregion types
 
-            #region functions
-            foreach ($RemoteFunction in $ScriptFunctions.GetEnumerator()) {
-                New-Item -Path "Function:$( $RemoteFunction.Key )" -Value $RemoteFunction.Value | Out-Null
+            #region script functions
+            foreach ($ScriptFunction in $ScriptFunctions.GetEnumerator()) {
+                New-Item -Path "Function:$( $ScriptFunction.Key )" -Value $ScriptFunction.Value | Out-Null
             }
+            #endregion script functions
 
+            #region functions
             function Add-Directory {
                 <#
                     .DESCRIPTION
@@ -1933,6 +1938,7 @@ using namespace System.Text.RegularExpressions
             [String]$ScriptLocation = "[GetUsedScript on '$HostName']"
             [Boolean]$IsShared = $false
             #endregion variables
+
             Write-DatedDebug -Message "$ScriptLocation Started" -PassThru | Write-DatedVerbose
         } process {
             try {
@@ -2189,33 +2195,36 @@ using namespace System.Text.RegularExpressions
             [Parameter(Mandatory)] [AllowEmptyCollection()] [PSObject[]]$OtherExcludedDiskFiles,
             [Parameter(Mandatory)] [Boolean]$IgnoreClusterSharedVolumes,
             [Parameter(Mandatory)] [Boolean]$Force,
-            [Parameter()] [String]$AuxHostName = $null,
-            [Parameter()] [PSObject]$AuxPreferences = $null,
-            [Parameter()] [HashTable]$AuxScriptFunctions = $null,
-            [Parameter()] [PSObject]$AuxRegexes = $null,
-            [Parameter()] [PSObject]$AuxComparerScripts = $null
+            [Parameter()] [String]$HostName = $script:HostName,
+            [Parameter()] [PSObject]$Preferences,
+            [Parameter()] [HashTable]$ScriptFunctions,
+            [Parameter()] [PSObject]$Regexes = $script:Regexes,
+            [Parameter()] [PSObject]$ComparerScripts = $script:ComparerScripts
         )
 
         begin {
+            #region preferences
+            if ($PSBoundParameters.ContainsKey('Preferences')) {
+                Set-StrictMode -Version $Preferences.StrictModeVersion
+                $ErrorActionPreference = $Preferences.ErrorAction
+                $DebugPreference = $Preferences.Debug
+                $VerbosePreference = $Preferences.Verbose
+            }
+            #endregion preferences
+ 
             #region types
             # The following comment is for functional reasons. It must not be renamed or removed.
             #ScriptTypes
             #endregion types
-            if ($AuxHostName) {
-                #region prepare
-                Set-StrictMode -Version 3.0
-                $ErrorActionPreference = $AuxPreferences.ErrorAction
-                $DebugPreference = $AuxPreferences.Debug
-                $VerbosePreference = $AuxPreferences.Verbose
-                #endregion prepare
 
-                foreach ($RemoteFunction in $AuxScriptFunctions.GetEnumerator()) {
-                    New-Item -Path "Function:$( $RemoteFunction.Key )" -Value $RemoteFunction.Value | Out-Null
+            #region script functions
+            if ($PSBoundParameters.ContainsKey('ScriptFunctions')) {
+                foreach ($ScriptFunction in $ScriptFunctions.GetEnumerator()) {
+                    New-Item -Path "Function:$( $ScriptFunction.Key )" -Value $ScriptFunction.Value | Out-Null
                 }
-                $HostName = $AuxHostName
-                $Regexes = $AuxRegexes
-                $ComparerScripts = $AuxComparerScripts
             }
+            #endregion script functions
+                
             #region variables
             [List[String]]$ExcludedPaths = [List[String]]::new()
             $ExcludedPaths.Add((Join-Path -Path $Env:SystemRoot -ChildPath 'vss')) # VSS writers are also registered as <guid>.xml
@@ -2243,6 +2252,7 @@ using namespace System.Text.RegularExpressions
                     $ComparerScripts.NameCreationTimeEquality
                 ))
             #endregion variables
+
             Write-DatedDebug -Message "$ScriptLocation Started" -PassThru | Write-DatedVerbose
         } process {
             $Verbose = $VerbosePreference
@@ -2312,6 +2322,7 @@ using namespace System.Text.RegularExpressions
             #region variables
             [Boolean]$GotLocalHost = $false
             #endregion variables
+
             if ($AsLocalOnly) {
                 Write-DatedDebug -Message "$ScriptLocation Verifying local host" -PassThru | Write-DatedVerbose
             } else {
@@ -2462,9 +2473,7 @@ using namespace System.Text.RegularExpressions
             [ResultCollections]$ResultCollector = [ResultCollections]::new()
             #endregion variables
         } process {
-            foreach ($DataVMHost in ($VMHosts |
-                        Where-Object -FilterScript { $_.Available -eq [EAvailable]::Yes -and $_.Type.HasFlag([EHostTypes]::VM) })
-            ) {
+            foreach ($DataVMHost in ($VMHosts | Where-Object -FilterScript { $_.Available -eq [EAvailable]::Yes -and $_.Type.HasFlag([EHostTypes]::VM) })) {
                 try {
                     [Object[]]$JobParameters = @(
                         $VMPath,
@@ -2727,7 +2736,7 @@ using namespace System.Text.RegularExpressions
                 Write-DatedDebug -Message "$ScriptLocation Scan for remote orphanded files" -PassThru | Write-DatedVerbose
                 if ($RemoteScanDirectories.Count) {
 
-                    foreach ($DataVMHost in ($VMHosts |
+                    foreach ($DataVMHost in ($VMHosts | 
                                 Where-Object -FilterScript { $_.Available -eq [EAvailable]::Yes -and $_.Type.HasFlag([EHostTypes]::VM) })
                     ) {
                         Write-DatedDebug -Message " - preparing scan of '$DataVMHost'"
@@ -2831,8 +2840,8 @@ using namespace System.Text.RegularExpressions
 
                 #region retrieve orphaned files and problematic paths
                 Write-DatedDebug -Message "$ScriptLocation Retrieving remote and shared orphaned files from all hosts"
-                foreach ($VMHost in $VMHosts | Where-Object -FilterScript { $_.HasJob() }) {
-                    foreach ($Path in $VMHost.GetJobsResults()) {
+                foreach ($JobVMHost in $VMHosts | Where-Object -FilterScript { $_.HasJob() }) {
+                    foreach ($Path in $JobVMHost.GetJobsResults()) {
                         if (($Path | Get-Member -Name 'Problem') -and $Path.Problem) {
                             if ($Path.FullName -match $Regexes.SharedPath) {
                                 $Path |
@@ -3548,7 +3557,7 @@ $( $Error[$ErrorNr].ScriptStackTrace )
     }
     #endregion functions
 
-    #region remote functions
+    #region script functions
     [HashTable]$ScriptFunctions = @{
         <#
 			.NOTES
@@ -3570,7 +3579,8 @@ $( $Error[$ErrorNr].ScriptStackTrace )
         ${Function:Add-PathInfo}.Ast.Name             = ${Function:Add-PathInfo}.ToString()
         ${Function:Get-VhdChain}.Ast.Name             = ${Function:Get-VhdChain}.ToString()
     }
-    #endregion remote functions
+    #endregion script functions
+    
     Write-DatedDebug -Message "$ScriptLocation Started" -PassThru | Write-DatedVerbose
 } process {
     #region validate input parameters
@@ -3645,7 +3655,9 @@ $( $Error[$ErrorNr].ScriptStackTrace )
         } else {
             Write-DatedWarning -Message "$ScriptLocation Missing any VM host to scan" -ErrorNr -1
         }
-        $ProblematicVMHosts.AddRange([HostInfo[]]@(($VMHosts | Where-Object -Property 'Available' -EQ -Value ([EAvailable]::No)).Clone()))
+        foreach ($ProblematicVMHost in ($VMHosts | Where-Object -Property 'Available' -EQ -Value ([EAvailable]::No))) {
+            $ProblematicVMHosts.Add($ProblematicVMHost)
+        }
     } finally {
         foreach ($Vmh in $VMHosts) {
             $Vmh.Dispose()
