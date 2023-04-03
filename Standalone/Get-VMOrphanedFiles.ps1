@@ -58,7 +58,7 @@
         System.String[], System.IO.DirectoryInfo[], System.IO.FileSystemInfo[], Microsoft.HyperV.PowerShell.HardDiskDrive[], Microsoft.Vhd.PowerShell.VirtualHardDisk ...
         You can pipe one or more strings that contain paths to scan or objects with a 'Path' or 'FullName' property to the VMPath parameter.
 
-        System.String[],  Microsoft.HyperV.PowerShell.VMHost[], ...
+        System.String[], Microsoft.HyperV.PowerShell.VMHost[], ...
         You can pipe one or more strings that contain virtual machine host names or VMHost objects to the VMHost parameter.
 
     .OUTPUTS
@@ -70,10 +70,13 @@
         Author of the initial versions 1.2 and 2.0: Eric Siron
 
     .LINK
-        https://www.altaro.com/hyper-v/free-script-find-orphaned-hyper-v-vm-files
+        version 1.2: https://www.altaro.com/hyper-v/free-script-find-orphaned-hyper-v-vm-files
 
     .LINK
-        https://github.com/ejsiron/Posher-V/blob/main/Standalone/Get-VMOrphanedFiles.ps1
+        version 2.0: https://github.com/ejsiron/Posher-V/blob/main/Standalone/Get-VMOrphanedFiles.ps1
+
+    .LINK
+        version 3.0: https://github.com/oahrens/Posher-V/blob/main/Standalone/Get-VMOrphanedFiles.ps1
 
     .EXAMPLE
         C:\PS> .\Get-VMOrphanedFiles
@@ -2211,7 +2214,7 @@ using namespace System.Text.RegularExpressions
                 $VerbosePreference = $Preferences.Verbose
             }
             #endregion preferences
- 
+
             #region types
             # The following comment is for functional reasons. It must not be renamed or removed.
             #ScriptTypes
@@ -2224,7 +2227,7 @@ using namespace System.Text.RegularExpressions
                 }
             }
             #endregion script functions
-                
+
             #region variables
             [List[String]]$ExcludedPaths = [List[String]]::new()
             $ExcludedPaths.Add((Join-Path -Path $Env:SystemRoot -ChildPath 'vss')) # VSS writers are also registered as <guid>.xml
@@ -2736,7 +2739,7 @@ using namespace System.Text.RegularExpressions
                 Write-DatedDebug -Message "$ScriptLocation Scan for remote orphanded files" -PassThru | Write-DatedVerbose
                 if ($RemoteScanDirectories.Count) {
 
-                    foreach ($DataVMHost in ($VMHosts | 
+                    foreach ($DataVMHost in ($VMHosts |
                                 Where-Object -FilterScript { $_.Available -eq [EAvailable]::Yes -and $_.Type.HasFlag([EHostTypes]::VM) })
                     ) {
                         Write-DatedDebug -Message " - preparing scan of '$DataVMHost'"
@@ -3430,7 +3433,7 @@ using namespace System.Text.RegularExpressions
             [UInt64]$Checksum = 0
             #endregion variables
         } process {
-            foreach ($Byte  in $InputObject) {
+            foreach ($Byte in $InputObject) {
                 $Checksum = ($Checksum + $Byte) -band $UInt32Mask
             }
         } end {
@@ -3580,7 +3583,7 @@ $( $Error[$ErrorNr].ScriptStackTrace )
         ${Function:Get-VhdChain}.Ast.Name             = ${Function:Get-VhdChain}.ToString()
     }
     #endregion script functions
-    
+
     Write-DatedDebug -Message "$ScriptLocation Started" -PassThru | Write-DatedVerbose
 } process {
     #region validate input parameters
@@ -3656,7 +3659,7 @@ $( $Error[$ErrorNr].ScriptStackTrace )
             Write-DatedWarning -Message "$ScriptLocation Missing any VM host to scan" -ErrorNr -1
         }
         foreach ($ProblematicVMHost in ($VMHosts | Where-Object -Property 'Available' -EQ -Value ([EAvailable]::No))) {
-            $ProblematicVMHosts.Add($ProblematicVMHost)
+            $ProblematicVMHosts.Add($ProblematicVMHost.Clone())
         }
     } finally {
         foreach ($Vmh in $VMHosts) {
