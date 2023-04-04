@@ -1407,7 +1407,7 @@ begin {
                     [VhdParentLocatorEntry]::PlatformCodeSize).TrimEnd([Char]::MinValue)
             $this.ParentLocatorPosition = [BigEndianBitConverter]::ToUInt64($BinaryData, [VhdParentLocatorEntry]::PositionOffset)
             $this.ParentLocatorSize = [BigEndianBitConverter]::ToUInt32($BinaryData, [VhdParentLocatorEntry]::SizeOffset)
-            if (($this.PathType -and $this.ParentLocatorPosition -and $this.ParentLocatorSize) -or -not $this.PathType) {
+            if (-not $this.PathType -or ($this.PathType -and $this.ParentLocatorPosition -and $this.ParentLocatorSize)) {
                 return
             } else {
                 throw [InvalidDataException]::new("Can't find VHD parent locator position or size")
@@ -2400,8 +2400,12 @@ using namespace System.Text.RegularExpressions
                 }
             }
         } end {
-            if (-not ($GotLocalHost -or $AsLocalOnly)) {
-                $Env:ComputerName | Test-Host -AsLocalOnly
+            if (-not $GotLocalHost) {
+                if (-not $AsLocalOnly) {
+                    $Env:ComputerName | Test-Host -AsLocalOnly
+                } else {
+                    throw [PlatformNotSupportedException]::new("Can't identify a host as local host")
+                }
             }
         }
     }
@@ -2688,7 +2692,7 @@ using namespace System.Text.RegularExpressions
                 [PathInfo[]]$Metafiles = @(($ResultCollector.SharedMetaFiles + $ResultCollector.RemoteMetaFiles) |
                         Where-Object -FilterScript { $_.Available -eq [EAvailable]::Yes }
                 )
-                Write-DatedDebug -Message "$ScriptLocation Found $( $Metafiles.Count ) ResultCollector configuration, state, and smart paging file(s):"
+                Write-DatedDebug -Message "$ScriptLocation Found $( $Metafiles.Count ) used configuration, state, and smart paging file(s):"
                 $Metafiles | ForEach-Object -Process { " - $_" } | Write-DatedDebug
 
                 [PathInfo[]]$DiskFiles = @(($ResultCollector.SharedDiskFiles + $ResultCollector.RemoteDiskFiles) |
@@ -3069,8 +3073,12 @@ using namespace System.Text.RegularExpressions
 				This function only forwards the path transmitted over the pipe if it is not a subpath of one of the paths in $Comparand.
 				The piped path and these in $Comparand can be of type String, System.IO.FileSystemInfo, or PathInfo.
 				In the case of a PathInfo object, the HostName property is involved in deciding whether there is a subpath.
-				If $Comparand is omitted, $Path list is compared to itself. In this case, duplicates in $Path are filtered out.
-				The $AllowSame switch is for internal use only.
+
+            .PARAMETER Comparand
+				If this parameter is omitted, $Path list is compared to itself. In this case, duplicates in $Path are filtered out.
+
+            .PARAMETER AllowSame
+				This switch is for internal use only and must not be set from outside the function.
 		#>
         [CmdletBinding()]
         [OutputType([String], [PathInfo], [FileSystemInfo])]
@@ -3087,47 +3095,42 @@ using namespace System.Text.RegularExpressions
                 [List[PSObject]]$Paths = [List[PSObject]]::new()
                 [HashSet[String]]$KnownPaths = [HashSet[String]]::new([StringComparer]::OrdinalIgnoreCase)
             }
+            if ($AllowSame) {
+                [String]$ComparandSuffix = '?*'
+            } else {
+                [String]$ComparandSuffix = '*'
+            }
         } process {
             foreach ($P in $Path) {
-                [String]$ExaminedPath = $null
                 [String]$ExaminedHostName = $null
                 if ($P | Get-Member -Name 'FullName') {
                     # type FileSystemInfo or PathInfo
-                    $ExaminedPath = $P.FullName | Ensure-SuffixedBackslash
-                    if ($P | Get-Member -Name 'HostName') {
+                    [String]$ExaminedPath = $P.FullName | Ensure-SuffixedBackslash
+                    if (($P | Get-Member -Name 'HostName') -and $P.HostName) {
                         $ExaminedHostName = $P.HostName
                     }
                 } else {
                     # type String
-                    $ExaminedPath = $P | Ensure-SuffixedBackslash
+                    [String]$ExaminedPath = $P | Ensure-SuffixedBackslash
                 }
                 if ($null -ne $Comparand) {
                     [Boolean]$IsSubpath = $false
                     foreach ($C in $Comparand) {
-                        [String]$ComparedPath = $null
                         [String]$ComparedHostName = $null
                         if ($C | Get-Member -Name 'FullName') {
                             # type FileSystemInfo or PathInfo
-                            $ComparedPath = $C.FullName
-                            if ($C | Get-Member -Name 'HostName') {
+                            [String]$ComparedPath = $C.FullName
+                            if (($C | Get-Member -Name 'HostName') -and $C.HostName) {
                                 $ComparedHostName = $C.HostName
                             }
                         } else {
                             # type String
-                            $ComparedPath = $C
+                            [String]$ComparedPath = $C
                         }
-                        if ((-not ($ExaminedHostName -or $ComparedHostName) -or $ExaminedHostName -eq $ComparedHostName)) {
-                            if ($AllowSame) {
-                                if ($ExaminedPath -like ($ComparedPath | Ensure-SuffixedBackslash) + '?*') {
-                                    $IsSubpath = $true
-                                    break
-                                }
-                            } else {
-                                if ($ExaminedPath -like ($ComparedPath | Ensure-SuffixedBackslash) + '*') {
-                                    $IsSubpath = $true
-                                    break
-                                }
-                            }
+                        if ($ExaminedHostName -eq $ComparedHostName `
+                                -and $ExaminedPath -like ($ComparedPath | Ensure-SuffixedBackslash) + $ComparandSuffix) {
+                            $IsSubpath = $true
+                            break
                         }
                     }
                     if (-not $IsSubpath) {
@@ -3444,7 +3447,7 @@ using namespace System.Text.RegularExpressions
     function Assert-ReadByte {
         <#
             .DESCRIPTION
-                This function throws an InvalidDataException if the piped amount does not match $Comparand.
+                This function throws an EndOfStreamException if the piped amount does not match $Comparand.
                 Otherwise, the piped amount is passed through.
         #>
         [CmdletBinding()]
@@ -3460,7 +3463,7 @@ using namespace System.Text.RegularExpressions
         begin {
         } process {
             if ($Count -ne $Comparand) {
-                throw [InvalidDataException]::new("Read $Count instead of $Comparand bytes for '$Location'.")
+                throw [EndOfStreamException]::new("Read $Count instead of $Comparand bytes for '$Location'.")
             } elseif ($PassThru) {
                 $Count
             }
@@ -3593,8 +3596,13 @@ $( $Error[$ErrorNr].ScriptStackTrace )
     ) {
         throw [ArgumentException]::new('The combination of parameters is not allowed')
     }
-    $UseDefaultPaths = ($VMPath -and $IncludeDefaultPaths) -or -not ($VMPath -or $ExcludeDefaultPaths)
-    $UseExistingPaths = ($VMPath -and $IncludeExistingPaths) -or -not ($VMPath -or $ExcludeExistingPaths)
+    if ($VMPath) {
+        [Boolean]$UseDefaultPaths = $IncludeDefaultPaths
+        [Boolean]$UseExistingPaths = $IncludeExistingPaths
+    } else {
+        [Boolean]$UseDefaultPaths = -not $ExcludeDefaultPaths
+        [Boolean]$UseExistingPaths = -not $ExcludeExistingPaths
+    }
     [String[]]@(
         " - VM host: {$VMHost}",
         " - VM path: {$VMPath}",
